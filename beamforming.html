@@ -95,6 +95,20 @@
   #farfieldCanvas, #earthCanvas{width:100%;aspect-ratio:1/1;display:block;border-radius:6px;}
   #beamCanvas{width:100%;height:260px;display:block;}
   #mapCanvas{width:100%;aspect-ratio:2/1;display:block;border-radius:6px;background:#0d1428;}
+  #map3dCanvas{width:100%;aspect-ratio:2/1;display:none;border-radius:6px;background:#0d1428;}
+
+  .view-toggle{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;}
+  .view-toggle button{
+    background:var(--bg-2);border:none;color:var(--text-2);
+    font-family:var(--font-mono);font-size:11px;padding:5px 10px;cursor:pointer;
+    transition:color .2s ease,background .2s ease;
+  }
+  .view-toggle button.active{background:var(--signal-dim);color:var(--signal);}
+  .view-toggle button:not(.active):hover{color:var(--text-1);}
+  .map-status-msg{
+    font-family:var(--font-mono);font-size:11px;color:var(--text-2);
+    padding:10px 0;
+  }
 
   .fs-btn{
     background:var(--bg-2);border:1px solid var(--line);color:var(--text-1);
@@ -108,8 +122,8 @@
     border-radius:0; display:flex; flex-direction:column;
     padding:20px clamp(20px,4vw,48px);
   }
-  .plot-panel.map-fullscreen #mapCanvas{
-    aspect-ratio:auto; flex:1; min-height:0; height:100%;
+  .plot-panel.map-fullscreen #mapCanvas, .plot-panel.map-fullscreen #map3dCanvas{
+    aspect-ratio:auto; flex:1; min-height:0;
   }
   .plot-panel.map-fullscreen .note{display:none;}
 
@@ -258,13 +272,19 @@
           <h2>Geographic coverage</h2>
           <div style="display:flex;align-items:center;gap:10px;">
             <span class="tag" id="mapTag">sub-satellite 0.0°E</span>
+            <div class="view-toggle">
+              <button id="view2dBtn" class="active">2D</button>
+              <button id="view3dBtn">3D</button>
+            </div>
             <button class="fs-btn" id="mapFsBtn" title="Fullscreen" aria-label="Toggle fullscreen">⛶</button>
           </div>
         </div>
         <div class="map-info-overlay" id="mapInfoOverlay"></div>
         <canvas id="mapCanvas"></canvas>
+        <canvas id="map3dCanvas"></canvas>
+        <div class="map-status-msg" id="map3dStatus" style="display:none;"></div>
         <div class="band-legend" id="bandLegend"></div>
-        <div class="note">Drag the map to slide the satellite's longitude and latitude. Contour roundness follows the array's own symmetry — Circular, Flower and Random give a clean red-centered falloff; Linear fans out with no cross-axis focus, and Square/Hexagonal keep a more grid-shaped footprint.</div>
+        <div class="note">Drag the 2D map to slide the satellite's longitude and latitude, or drag to orbit in 3D. Contour roundness follows the array's own symmetry — Circular, Flower and Random give a clean red-centered falloff; Linear fans out with no cross-axis focus, and Square/Hexagonal keep a more grid-shaped footprint.</div>
       </div>
     </div>
   </div>
@@ -312,6 +332,10 @@
   const farfieldCanvas = document.getElementById('farfieldCanvas');
   const earthCanvas = document.getElementById('earthCanvas');
   const mapCanvas = document.getElementById('mapCanvas');
+  const map3dCanvas = document.getElementById('map3dCanvas');
+  const map3dStatus = document.getElementById('map3dStatus');
+  const view2dBtn = document.getElementById('view2dBtn');
+  const view3dBtn = document.getElementById('view3dBtn');
   const mapFsBtn = document.getElementById('mapFsBtn');
   const mapInfoOverlay = document.getElementById('mapInfoOverlay');
   const mapPanel = mapCanvas.closest('.plot-panel');
@@ -796,6 +820,230 @@
       ', ' + Math.abs(satLatDeg).toFixed(1) + '°' + (satLatDeg>=0?'N':'S');
   }
 
+  // ---------- 3D globe (lazy-loaded — only fetched the first time the user
+  // switches to the 3D view, so the page stays light by default) ----------
+  let THREE = null, OrbitControls = null;
+  let scene3D, camera3D, renderer3D, controls3D;
+  let earthMesh3D, coverageMesh3D, satMesh3D, horizonLine3D, earthTex3D, coverageTex3D, coverageTexCanvas3D;
+  let map3DActive = false, map3DReady = false, map3DLoading = false, anim3DHandle = null;
+
+  const THREE_CDNS = [
+    { core: 'https://unpkg.com/three@0.160.0/build/three.module.js',
+      controls: 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js' },
+    { core: 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
+      controls: 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js' }
+  ];
+
+  async function loadThreeLibs(){
+    if(THREE) return;
+    let lastErr;
+    for(const cdn of THREE_CDNS){
+      try{
+        const [threeMod, controlsMod] = await Promise.all([
+          import(cdn.core),
+          import(cdn.controls)
+        ]);
+        THREE = threeMod;
+        OrbitControls = controlsMod.OrbitControls;
+        return;
+      } catch(err){
+        lastErr = err;
+        console.warn('3D CDN failed, trying next:', cdn.core, err);
+      }
+    }
+    throw lastErr;
+  }
+
+  // same equirectangular convention as lonLatToXY/drawWorldBase — lon -180..180
+  // maps to u 0..1, lat 90..-90 maps to v 0..1 — inverted here onto Three's
+  // default SphereGeometry UV unwrap so the texture and 3D markers agree
+  function latLonToVec3(lonDeg, latDeg, radius){
+    const phi = (lonDeg*Math.PI/180) + Math.PI;
+    const theta = (90-latDeg)*Math.PI/180;
+    return new THREE.Vector3(
+      -radius*Math.cos(phi)*Math.sin(theta),
+       radius*Math.cos(theta),
+       radius*Math.sin(phi)*Math.sin(theta)
+    );
+  }
+
+  async function init3D(){
+    if(map3DReady || map3DLoading) return;
+    map3DLoading = true;
+    map3dStatus.style.display = 'block';
+    map3dStatus.textContent = 'Loading 3D engine…';
+    try{
+      await loadThreeLibs();
+
+      scene3D = new THREE.Scene();
+      camera3D = new THREE.PerspectiveCamera(45, 2, 0.1, 200);
+      camera3D.position.set(0, 1.2, 6);
+
+      renderer3D = new THREE.WebGLRenderer({canvas: map3dCanvas, antialias:true, alpha:true});
+      renderer3D.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+
+      controls3D = new OrbitControls(camera3D, renderer3D.domElement);
+      controls3D.enableDamping = true;
+      controls3D.dampingFactor = 0.08;
+      controls3D.minDistance = 2.4;
+      controls3D.maxDistance = 40;
+
+      // starfield
+      const starCount = 500;
+      const starPos = new Float32Array(starCount*3);
+      for(let i=0;i<starCount;i++){
+        const r = 40+Math.random()*25;
+        const th = Math.random()*Math.PI*2, ph = Math.acos(2*Math.random()-1);
+        starPos[i*3]=r*Math.sin(ph)*Math.cos(th);
+        starPos[i*3+1]=r*Math.sin(ph)*Math.sin(th);
+        starPos[i*3+2]=r*Math.cos(ph);
+      }
+      const starGeo = new THREE.BufferGeometry();
+      starGeo.setAttribute('position', new THREE.BufferAttribute(starPos,3));
+      scene3D.add(new THREE.Points(starGeo, new THREE.PointsMaterial({color:0x5C6588, size:0.07})));
+
+      // Earth sphere — texture is the same drawWorldBase() coastline
+      // renderer we already use for the 2D map, just baked once onto an
+      // offscreen canvas instead of drawn straight to screen
+      const earthCanvas = document.createElement('canvas');
+      earthCanvas.width = 1024; earthCanvas.height = 512;
+      drawWorldBase(earthCanvas.getContext('2d'), 1024, 512);
+      earthTex3D = new THREE.CanvasTexture(earthCanvas);
+      earthMesh3D = new THREE.Mesh(
+        new THREE.SphereGeometry(2, 64, 64),
+        new THREE.MeshBasicMaterial({map: earthTex3D})
+      );
+      scene3D.add(earthMesh3D);
+
+      // coverage overlay — a slightly larger transparent shell, redrawn
+      // every update from the same array-factor/contour-band math as the
+      // 2D map
+      coverageTexCanvas3D = document.createElement('canvas');
+      coverageTexCanvas3D.width = 1024; coverageTexCanvas3D.height = 512;
+      coverageTex3D = new THREE.CanvasTexture(coverageTexCanvas3D);
+      coverageMesh3D = new THREE.Mesh(
+        new THREE.SphereGeometry(2.012, 64, 64),
+        new THREE.MeshBasicMaterial({map: coverageTex3D, transparent:true, depthWrite:false})
+      );
+      scene3D.add(coverageMesh3D);
+
+      // horizon boundary line
+      horizonLine3D = new THREE.Line(
+        new THREE.BufferGeometry(),
+        new THREE.LineBasicMaterial({color:0xFF8F5C, transparent:true, opacity:0.85})
+      );
+      scene3D.add(horizonLine3D);
+
+      // satellite marker
+      satMesh3D = new THREE.Mesh(
+        new THREE.SphereGeometry(0.05, 16, 16),
+        new THREE.MeshBasicMaterial({color:0x4FE8D4})
+      );
+      scene3D.add(satMesh3D);
+
+      map3DReady = true;
+      map3dStatus.style.display = 'none';
+    } catch(err){
+      const hint = location.protocol === 'file:'
+        ? "3D view can't load when opened as a local file — serve it over http(s) (e.g. GitHub Pages, or a local server) instead."
+        : "3D view couldn't load (network blocked, ad blocker, or WebGL unsupported) — try the 2D map instead.";
+      map3dStatus.textContent = hint;
+      console.error('3D init failed:', err);
+    }
+    map3DLoading = false;
+  }
+
+  function update3D(pts, w, u0, v0, fr, altitude, satLonDeg, satLatDeg){
+    if(!map3DReady) return;
+
+    // redraw the coverage texture with the current footprint
+    const TW=coverageTexCanvas3D.width, TH=coverageTexCanvas3D.height;
+    const tctx = coverageTexCanvas3D.getContext('2d');
+    const imgData = tctx.createImageData(TW, TH);
+    const buf = imgData.data;
+    const k = (RE+altitude)/RE;
+    const lamHor = Math.acos(Math.min(1, RE/(RE+altitude)));
+    const lon0 = satLonDeg*Math.PI/180, lat0 = satLatDeg*Math.PI/180;
+    const alphaVal = Math.round(parseFloat(mapOpacity.value)/100*255);
+    for(let j=0;j<TH;j++){
+      const lat = (90-(j/(TH-1))*180)*Math.PI/180;
+      for(let i=0;i<TW;i++){
+        const lon = (-180+(i/(TW-1))*360)*Math.PI/180;
+        const dlon = lon-lon0;
+        const idx = (j*TW+i)*4;
+        const cosLambda = Math.sin(lat0)*Math.sin(lat)+Math.cos(lat0)*Math.cos(lat)*Math.cos(dlon);
+        const lambda = Math.acos(Math.max(-1,Math.min(1,cosLambda)));
+        if(lambda>lamHor) continue;
+        const bearing = Math.atan2(
+          Math.sin(dlon)*Math.cos(lat),
+          Math.cos(lat0)*Math.sin(lat)-Math.sin(lat0)*Math.cos(lat)*Math.cos(dlon)
+        );
+        const theta = thetaOfLambda(lambda,k);
+        const u = Math.sin(theta)*Math.cos(bearing), v = Math.sin(theta)*Math.sin(bearing);
+        const m = arrayFactor(u,v,u0,v0,pts,w,fr);
+        const db = 20*Math.log10(Math.max(m/maxMagGlobal,1e-6));
+        const c = bandColor(db);
+        if(!c) continue;
+        buf[idx]=c[0]; buf[idx+1]=c[1]; buf[idx+2]=c[2]; buf[idx+3]=alphaVal;
+      }
+    }
+    tctx.putImageData(imgData,0,0);
+    coverageTex3D.needsUpdate = true;
+
+    // satellite marker — placed at the true (Re+h)/Re ratio, so GEO really
+    // does sit visibly farther out than LEO
+    const satRadius = 2*((RE+altitude)/RE);
+    satMesh3D.position.copy(latLonToVec3(satLonDeg, satLatDeg, satRadius));
+
+    // horizon boundary, same destination-formula loop as the 2D map, just
+    // placed directly in 3D — no antimeridian seam handling needed here,
+    // since it's real 3D points on a sphere, not a flattened projection
+    const horizonPts = [];
+    for(let bIdx=0; bIdx<=72; bIdx++){
+      const bearing = (bIdx/72)*2*Math.PI;
+      const lat2 = Math.asin(Math.sin(lat0)*Math.cos(lamHor) + Math.cos(lat0)*Math.sin(lamHor)*Math.cos(bearing));
+      const lon2 = lon0 + Math.atan2(
+        Math.sin(bearing)*Math.sin(lamHor)*Math.cos(lat0),
+        Math.cos(lamHor) - Math.sin(lat0)*Math.sin(lat2)
+      );
+      horizonPts.push(latLonToVec3(lon2*180/Math.PI, lat2*180/Math.PI, 2.02));
+    }
+    horizonLine3D.geometry.setFromPoints(horizonPts);
+
+    document.getElementById('mapTag').textContent =
+      'sub-satellite ' + Math.abs(satLonDeg).toFixed(1) + '°' + (satLonDeg>=0?'E':'W') +
+      ', ' + Math.abs(satLatDeg).toFixed(1) + '°' + (satLatDeg>=0?'N':'S');
+  }
+
+  function resize3D(){
+    if(!renderer3D) return;
+    const rect = map3dCanvas.getBoundingClientRect();
+    if(rect.width===0 || rect.height===0) return;
+    renderer3D.setSize(rect.width, rect.height, false);
+    camera3D.aspect = rect.width/rect.height;
+    camera3D.updateProjectionMatrix();
+  }
+
+  function animate3D(){
+    if(!map3DActive) return;
+    anim3DHandle = requestAnimationFrame(animate3D);
+    controls3D.update();
+    renderer3D.render(scene3D, camera3D);
+  }
+
+  async function setMapView(is3D){
+    if(is3D && !map3DReady) await init3D();
+    map3DActive = is3D && map3DReady;
+    mapCanvas.style.display = map3DActive ? 'none' : 'block';
+    map3dCanvas.style.display = map3DActive ? 'block' : 'none';
+    view2dBtn.classList.toggle('active', !map3DActive);
+    view3dBtn.classList.toggle('active', map3DActive);
+    if(map3DActive){
+      requestAnimationFrame(()=>{ resize3D(); animate3D(); });
+    }
+    scheduleUpdate();
+  }
+
   const bandLegendEl = document.getElementById('bandLegend');
   const bandLabels = ['0 to -1dB','-1 to -3dB','-3 to -6dB','-6 to -10dB','-10 to -16dB','-16 to -24dB','-24 to -40dB'];
   bandLegendEl.innerHTML = CONTOUR_BANDS.map((b,i)=>`
@@ -999,7 +1247,11 @@
     drawFarfield(pts, w, u0, v0, fr);       // sets maxMagGlobal for the other two plots
     drawBeamPattern(pts, w, u0, v0, fr, theta0, phi0);
     drawEarth(pts, w, u0, v0, fr, altitude);
-    drawWorldFootprint(pts, w, u0, v0, fr, altitude, parseFloat(satLon.value), parseFloat(satLat.value));
+    if(map3DActive){
+      update3D(pts, w, u0, v0, fr, altitude, parseFloat(satLon.value), parseFloat(satLat.value));
+    } else {
+      drawWorldFootprint(pts, w, u0, v0, fr, altitude, parseFloat(satLon.value), parseFloat(satLat.value));
+    }
     computeStats(pts, w, u0, v0, fr, theta0, altitude);
 
     mapInfoOverlay.innerHTML = `
@@ -1058,14 +1310,14 @@
   });
   mapCanvas.addEventListener('pointerup', ()=>{ mapDragging = false; });
   mapCanvas.addEventListener('pointercancel', ()=>{ mapDragging = false; });
-  window.addEventListener('resize', scheduleUpdate);
+  window.addEventListener('resize', ()=>{ scheduleUpdate(); resize3D(); });
 
   mapFsBtn.addEventListener('click', ()=>{
     const isFs = mapPanel.classList.toggle('map-fullscreen');
     document.body.style.overflow = isFs ? 'hidden' : '';
     mapFsBtn.textContent = isFs ? '✕' : '⛶';
     mapFsBtn.title = isFs ? 'Exit fullscreen' : 'Fullscreen';
-    requestAnimationFrame(scheduleUpdate);
+    requestAnimationFrame(()=>{ scheduleUpdate(); resize3D(); });
   });
   document.addEventListener('keydown', (e)=>{
     if(e.key === 'Escape' && mapPanel.classList.contains('map-fullscreen')){
@@ -1074,8 +1326,12 @@
       mapFsBtn.textContent = '⛶';
       mapFsBtn.title = 'Fullscreen';
       scheduleUpdate();
+      resize3D();
     }
   });
+
+  view2dBtn.addEventListener('click', ()=>setMapView(false));
+  view3dBtn.addEventListener('click', ()=>setMapView(true));
 
   buildShapeParams();
   update();
