@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yo — Signals Across the Void</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-0:#0A0E1B;
+    --bg-1:#111729;
+    --bg-2:#171f38;
+    --line:#232c48;
+    --text-0:#E9ECF6;
+    --text-1:#9AA3C0;
+    --text-2:#5C6588;
+    --signal:#4FE8D4;
+    --signal-dim:#4FE8D433;
+    --warm:#FF8F5C;
+    --font-display:'Space Grotesk', sans-serif;
+    --font-body:'IBM Plex Sans', sans-serif;
+    --font-mono:'IBM Plex Mono', monospace;
+  }
+
+  *{margin:0;padding:0;box-sizing:border-box;}
+
+  html{scroll-behavior:smooth;}
+
+  body{
+    background:var(--bg-0);
+    color:var(--text-0);
+    font-family:var(--font-body);
+    line-height:1.5;
+    overflow-x:hidden;
+  }
+
+  a{color:inherit;text-decoration:none;}
+
+  ::selection{background:var(--signal-dim);color:var(--text-0);}
+
+  :focus-visible{outline:2px solid var(--signal);outline-offset:3px;}
+
+  /* ---------- NAV ---------- */
+  nav{
+    position:fixed;top:0;left:0;right:0;z-index:50;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:22px clamp(20px,5vw,56px);
+    background:linear-gradient(180deg, rgba(10,14,27,0.9), rgba(10,14,27,0));
+    backdrop-filter:blur(6px);
+  }
+  .mark{
+    font-family:var(--font-mono);
+    font-size:14px;letter-spacing:0.08em;
+    color:var(--text-0);
+    display:flex;align-items:center;gap:8px;
+  }
+  .mark::before{
+    content:'';
+    width:7px;height:7px;border-radius:50%;
+    background:var(--signal);
+    box-shadow:0 0 8px 1px var(--signal);
+  }
+  .nav-links{display:flex;gap:clamp(18px,3vw,36px);font-family:var(--font-mono);font-size:13px;letter-spacing:0.04em;color:var(--text-1);}
+  .nav-links a{transition:color .2s ease;position:relative;}
+  .nav-links a:hover{color:var(--text-0);}
+  .nav-links a::after{
+    content:'';position:absolute;left:0;bottom:-5px;height:1px;width:0;
+    background:var(--signal);transition:width .25s ease;
+  }
+  .nav-links a:hover::after{width:100%;}
+
+  /* ---------- HERO ---------- */
+  .hero{
+    position:relative;
+    min-height:100vh;
+    display:flex;flex-direction:column;justify-content:center;
+    padding:0 clamp(20px,5vw,56px);
+    overflow:hidden;
+  }
+  #wavefront{position:absolute;inset:0;width:100%;height:100%;z-index:0;}
+  .hero-content{position:relative;z-index:2;max-width:820px;}
+  .eyebrow{
+    font-family:var(--font-mono);font-size:12.5px;letter-spacing:0.12em;
+    color:var(--signal);text-transform:uppercase;
+    display:flex;align-items:center;gap:10px;margin-bottom:22px;
+  }
+  .eyebrow .dash{width:24px;height:1px;background:var(--signal);}
+  h1{
+    font-family:var(--font-display);
+    font-weight:600;
+    font-size:clamp(2.4rem, 6vw, 4.6rem);
+    line-height:1.05;
+    letter-spacing:-0.01em;
+    color:var(--text-0);
+    max-width:14ch;
+  }
+  h1 em{
+    font-style:normal;
+    color:var(--signal);
+  }
+  .lede{
+    margin-top:26px;
+    font-size:clamp(1rem,1.6vw,1.15rem);
+    color:var(--text-1);
+    max-width:52ch;
+  }
+  .cred{
+    margin-top:34px;
+    font-family:var(--font-mono);
+    font-size:12.5px;
+    color:var(--text-2);
+    display:flex;flex-wrap:wrap;gap:8px 18px;
+    letter-spacing:0.02em;
+  }
+  .cred span{color:var(--text-1);}
+
+  .scroll-cue{
+    position:absolute;bottom:34px;left:clamp(20px,5vw,56px);z-index:2;
+    font-family:var(--font-mono);font-size:11px;color:var(--text-2);
+    display:flex;align-items:center;gap:10px;
+  }
+  .scroll-cue .line{width:1px;height:34px;background:linear-gradient(var(--text-2), transparent);}
+
+  /* ---------- SECTION SHELL ---------- */
+  section{padding:120px clamp(20px,5vw,56px);position:relative;}
+  .section-head{margin-bottom:56px;max-width:640px;}
+  .section-label{
+    font-family:var(--font-mono);font-size:12px;letter-spacing:0.14em;
+    color:var(--signal);text-transform:uppercase;margin-bottom:14px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .section-label .dash{width:24px;height:1px;background:var(--signal);}
+  .section-title{
+    font-family:var(--font-display);font-weight:600;
+    font-size:clamp(1.7rem,3vw,2.4rem);color:var(--text-0);
+  }
+  .section-sub{margin-top:16px;color:var(--text-1);font-size:1rem;max-width:52ch;}
+
+  /* ---------- TRANSMISSIONS (projects) ---------- */
+  .channels{display:flex;flex-direction:column;border-top:1px solid var(--line);}
+  .channel{
+    display:grid;
+    grid-template-columns:120px 1fr 220px;
+    gap:36px;
+    align-items:center;
+    padding:38px 0;
+    border-bottom:1px solid var(--line);
+    transition:background .25s ease;
+    position:relative;
+  }
+  .channel:hover{background:var(--bg-1);}
+  .channel:hover .chan-icon svg{opacity:1;}
+  .chan-id{
+    font-family:var(--font-mono);font-size:13px;color:var(--text-2);
+    letter-spacing:0.06em;
+  }
+  .chan-icon{width:120px;height:80px;display:flex;align-items:center;justify-content:flex-start;}
+  .chan-icon svg{opacity:0.75;transition:opacity .25s ease;width:56px;height:56px;}
+  .chan-body h3{
+    font-family:var(--font-display);font-weight:600;
+    font-size:clamp(1.2rem,2vw,1.55rem);color:var(--text-0);margin-bottom:10px;
+  }
+  .chan-body p{color:var(--text-1);font-size:0.95rem;max-width:56ch;}
+  .chan-status{
+    justify-self:end;
+    font-family:var(--font-mono);font-size:11.5px;letter-spacing:0.08em;
+    padding:6px 12px;border:1px solid var(--line);border-radius:100px;
+    color:var(--text-2);text-align:center;white-space:nowrap;
+  }
+  .chan-status.dev{color:var(--warm);border-color:#FF8F5C40;}
+  .chan-status.planned{color:var(--text-2);}
+
+  @media (max-width:760px){
+    .channel{grid-template-columns:1fr;gap:14px;padding:30px 0;}
+    .chan-icon{width:auto;height:48px;}
+    .chan-status{justify-self:start;}
+  }
+
+  /* ---------- ABOUT ---------- */
+  .about-grid{display:grid;grid-template-columns:1.1fr 0.9fr;gap:64px;}
+  .about-text p{color:var(--text-1);font-size:1rem;max-width:56ch;margin-bottom:18px;}
+  .about-text p:first-child{color:var(--text-0);font-size:1.08rem;}
+  .timeline{border-left:1px solid var(--line);padding-left:28px;}
+  .tl-item{margin-bottom:26px;font-family:var(--font-mono);font-size:12.5px;}
+  .tl-item .tl-year{color:var(--signal);display:block;margin-bottom:4px;letter-spacing:0.05em;}
+  .tl-item .tl-what{color:var(--text-1);font-family:var(--font-body);font-size:0.92rem;}
+  @media (max-width:820px){.about-grid{grid-template-columns:1fr;gap:40px;}}
+
+  /* ---------- FOOTER ---------- */
+  footer{
+    padding:64px clamp(20px,5vw,56px) 44px;
+    border-top:1px solid var(--line);
+    display:flex;flex-wrap:wrap;gap:24px;
+    align-items:flex-end;justify-content:space-between;
+  }
+  .foot-left{font-family:var(--font-mono);font-size:12px;color:var(--text-2);}
+  .foot-left span{color:var(--signal);}
+  .foot-links{display:flex;gap:28px;font-family:var(--font-mono);font-size:12.5px;color:var(--text-1);}
+  .foot-links a{transition:color .2s ease;}
+  .foot-links a:hover{color:var(--signal);}
+
+  /* ---------- REVEAL ---------- */
+  .reveal{opacity:0;transform:translateY(18px);transition:opacity .7s ease, transform .7s ease;}
+  .reveal.in{opacity:1;transform:translateY(0);}
+
+  @media (prefers-reduced-motion: reduce){
+    html{scroll-behavior:auto;}
+    .reveal{transition:none;opacity:1;transform:none;}
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="mark">YO · SIGNALS</div>
+  <div class="nav-links">
+    <a href="#transmissions">Transmissions</a>
+    <a href="#about">About</a>
+    <a href="#contact">Contact</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <canvas id="wavefront"></canvas>
+  <div class="hero-content">
+    <div class="eyebrow"><span class="dash"></span>PhD Candidate — Signal Processing</div>
+    <h1>Engineering how signals find their way through <em>empty space</em>.</h1>
+    <p class="lede">A working lab notebook, turned interactive — broadband beamforming, orbital links, and the physics of getting a message from one point in the universe to another.</p>
+    <div class="cred">
+      <div>ISAE-SUPAERO <span>· Toulouse</span></div>
+      <div>Broadband &amp; Polynomial Beamforming <span>· pHCG</span></div>
+      <div>ex. NII Tokyo <span>· 2023</span></div>
+    </div>
+  </div>
+  <div class="scroll-cue"><div class="line"></div>SCROLL</div>
+</header>
+
+<section id="transmissions">
+  <div class="section-head reveal">
+    <div class="section-label"><span class="dash"></span>03 Active Channels</div>
+    <h2 class="section-title">Transmissions</h2>
+    <p class="section-sub">Three interactive builds, each a different way of asking the same question: how does a signal get from here to there, and what shape does it take on the way.</p>
+  </div>
+
+  <div class="channels reveal">
+    <div class="channel">
+      <div class="chan-id">CH.01<br>ORBIT</div>
+      <div class="chan-icon">
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="32" cy="32" r="10" stroke="#4FE8D4" stroke-width="1.4"/>
+          <ellipse cx="32" cy="32" rx="27" ry="12" stroke="#4FE8D4" stroke-width="1.1" opacity="0.6"/>
+          <circle cx="8" cy="27" r="2.4" fill="#4FE8D4"/>
+          <path d="M8 27 L32 32" stroke="#4FE8D4" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.6"/>
+        </svg>
+      </div>
+      <div class="chan-body">
+        <h3>Coverage &amp; Link Budget</h3>
+        <p>A 3D satellite pass over Earth — ground track, coverage footprint, and the link budget math (path loss, EIRP, G/T) updating live as the orbit moves.</p>
+      </div>
+      <div class="chan-status planned">IN DESIGN</div>
+    </div>
+
+    <div class="channel">
+      <div class="chan-id">CH.02<br>ARRAY</div>
+      <div class="chan-icon">
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="14" cy="50" r="2" fill="#4FE8D4"/>
+          <circle cx="24" cy="50" r="2" fill="#4FE8D4"/>
+          <circle cx="34" cy="50" r="2" fill="#4FE8D4"/>
+          <circle cx="44" cy="50" r="2" fill="#4FE8D4"/>
+          <path d="M14 50 Q30 16 54 12" stroke="#4FE8D4" stroke-width="1.1" opacity="0.7"/>
+          <path d="M24 50 Q34 20 54 12" stroke="#4FE8D4" stroke-width="1.1" opacity="0.45"/>
+          <path d="M34 50 Q40 24 54 12" stroke="#4FE8D4" stroke-width="1.1" opacity="0.3"/>
+        </svg>
+      </div>
+      <div class="chan-body">
+        <h3>Beamforming Simulator</h3>
+        <p>Shape an array, steer it, taper it — watch the beam pattern respond in real time. The same array-factor math behind the pHCG work, made tactile.</p>
+      </div>
+      <div class="chan-status dev">BUILD NEXT</div>
+    </div>
+
+    <div class="channel">
+      <div class="chan-id">CH.03<br>VOYAGE</div>
+      <div class="chan-icon">
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M32 10 L38 44 L32 54 L26 44 Z" stroke="#4FE8D4" stroke-width="1.2"/>
+          <circle cx="14" cy="18" r="1.4" fill="#4FE8D4" opacity="0.8"/>
+          <circle cx="50" cy="24" r="1" fill="#4FE8D4" opacity="0.6"/>
+          <circle cx="46" cy="46" r="1.6" fill="#4FE8D4" opacity="0.7"/>
+          <circle cx="18" cy="42" r="1" fill="#4FE8D4" opacity="0.5"/>
+        </svg>
+      </div>
+      <div class="chan-body">
+        <h3>Stellar Voyage</h3>
+        <p>Pilot a small craft through a real star catalog. Every system you reach — real coordinates, real data — opens a short dossier on what you're looking at.</p>
+      </div>
+      <div class="chan-status planned">PLANNED</div>
+    </div>
+  </div>
+</section>
+
+<section id="about">
+  <div class="about-grid">
+    <div class="about-text reveal">
+      <div class="section-label"><span class="dash"></span>About</div>
+      <p>I work on broadband and polynomial-matrix beamforming — the mathematics of combining many small signals into one that points somewhere on purpose.</p>
+      <p>Most of my research lives in Laurent series, z-domain operator theory, and iterative solvers — pHCG, the algorithm at the center of my current paper, is a conjugate-gradient method built for para-Hermitian systems. This site is where that work gets a body: something you can steer, break, and rebuild in a browser instead of a MATLAB script.</p>
+    </div>
+    <div class="timeline reveal">
+      <div class="tl-item"><span class="tl-year">2023</span><span class="tl-what">M.Sc. Advanced Communication Systems — ISAE-SUPAERO</span></div>
+      <div class="tl-item"><span class="tl-year">2023</span><span class="tl-what">Diplôme d'Ingénieur, Informatics &amp; Telecom — Toulouse INP ENSEEIHT</span></div>
+      <div class="tl-item"><span class="tl-year">2023</span><span class="tl-what">Research Intern — National Institute of Informatics, Tokyo</span></div>
+      <div class="tl-item"><span class="tl-year">now</span><span class="tl-what">PhD Candidate — ISAE-SUPAERO, Toulouse</span></div>
+    </div>
+  </div>
+</section>
+
+<footer id="contact">
+  <div class="foot-left">TRANSMISSION END <span>·</span> built in Toulouse</div>
+  <div class="foot-links">
+    <a href="#">Email</a>
+    <a href="#">Google Scholar</a>
+    <a href="#">GitHub</a>
+    <a href="#">LinkedIn</a>
+  </div>
+</footer>
+
+<script>
+  // Wavefront hero animation: array of point sources emitting expanding
+  // rings that overlap and brighten where they interfere — a visual
+  // metaphor for beam steering, built from the same idea as the CH.02 sim.
+  const canvas = document.getElementById('wavefront');
+  const ctx = canvas.getContext('2d');
+  let w, h, dpr;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function resize(){
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    w = canvas.offsetWidth; h = canvas.offsetHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // static starfield
+  const stars = Array.from({length: 90}, () => ({
+    x: Math.random(), y: Math.random(),
+    r: Math.random()*1.2 + 0.2,
+    a: Math.random()*0.5 + 0.15
+  }));
+
+  // array elements along the bottom, emitting rings
+  const sources = Array.from({length: 6}, (_, i) => ({
+    x: 0.5 + (i - 2.5) * 0.06
+  }));
+
+  let t = 0;
+
+  function frame(){
+    ctx.clearRect(0,0,w,h);
+
+    // starfield
+    ctx.fillStyle = '#E9ECF6';
+    stars.forEach(s=>{
+      ctx.globalAlpha = s.a;
+      ctx.beginPath();
+      ctx.arc(s.x*w, s.y*h, s.r, 0, Math.PI*2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    // interference rings
+    ctx.globalCompositeOperation = 'lighter';
+    sources.forEach((src, i)=>{
+      const sx = src.x * w;
+      const sy = h * 1.05;
+      for(let k=0;k<4;k++){
+        const phase = (t*0.6 + k/4 + i*0.05) % 1;
+        const radius = phase * h * 1.5;
+        const alpha = (1 - phase) * 0.14;
+        if(alpha <= 0) continue;
+        ctx.strokeStyle = `rgba(79,232,212,${alpha})`;
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        ctx.arc(sx, sy, radius, Math.PI, 2*Math.PI);
+        ctx.stroke();
+      }
+    });
+    ctx.globalCompositeOperation = 'source-over';
+
+    if(!reduceMotion){
+      t += 0.0028;
+      requestAnimationFrame(frame);
+    }
+  }
+  frame();
+
+  // scroll reveal
+  const revealEls = document.querySelectorAll('.reveal');
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{
+      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, { threshold: 0.15 });
+  revealEls.forEach(el=>io.observe(el));
+</script>
+
+</body>
+</html>
