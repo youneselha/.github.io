@@ -149,7 +149,10 @@
     border-bottom:1px solid var(--line);
     transition:background .25s ease;
     position:relative;
+    color:inherit;
+    text-decoration:none;
   }
+  a.channel{cursor:pointer;}
   .channel:hover{background:var(--bg-1);}
   .channel:hover .chan-icon svg{opacity:1;}
   .chan-id{
@@ -171,6 +174,7 @@
   }
   .chan-status.dev{color:var(--warm);border-color:#FF8F5C40;}
   .chan-status.planned{color:var(--text-2);}
+  .chan-status.live{color:var(--signal);border-color:var(--signal-dim);}
 
   @media (max-width:760px){
     .channel{grid-template-columns:1fr;gap:14px;padding:30px 0;}
@@ -262,7 +266,7 @@
       <div class="chan-status planned">IN DESIGN</div>
     </div>
 
-    <div class="channel">
+    <a class="channel" href="beamforming.html">
       <div class="chan-id">CH.02<br>ARRAY</div>
       <div class="chan-icon">
         <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -279,8 +283,8 @@
         <h3>Beamforming Simulator</h3>
         <p>Shape an array, steer it, taper it — watch the beam pattern respond in real time. The same array-factor math behind the pHCG work, made tactile.</p>
       </div>
-      <div class="chan-status dev">BUILD NEXT</div>
-    </div>
+      <div class="chan-status live">LIVE</div>
+    </a>
 
     <div class="channel">
       <div class="chan-id">CH.03<br>VOYAGE</div>
