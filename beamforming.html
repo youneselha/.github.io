@@ -7,6 +7,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
 <style>
   :root{
     --bg-0:#0A0E1B; --bg-1:#111729; --bg-2:#171f38; --line:#232c48;
@@ -827,31 +835,14 @@
   let earthMesh3D, coverageMesh3D, satMesh3D, horizonLine3D, earthTex3D, coverageTex3D, coverageTexCanvas3D;
   let map3DActive = false, map3DReady = false, map3DLoading = false, anim3DHandle = null;
 
-  const THREE_CDNS = [
-    { core: 'https://unpkg.com/three@0.160.0/build/three.module.js',
-      controls: 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js' },
-    { core: 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
-      controls: 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js' }
-  ];
-
   async function loadThreeLibs(){
     if(THREE) return;
-    let lastErr;
-    for(const cdn of THREE_CDNS){
-      try{
-        const [threeMod, controlsMod] = await Promise.all([
-          import(cdn.core),
-          import(cdn.controls)
-        ]);
-        THREE = threeMod;
-        OrbitControls = controlsMod.OrbitControls;
-        return;
-      } catch(err){
-        lastErr = err;
-        console.warn('3D CDN failed, trying next:', cdn.core, err);
-      }
-    }
-    throw lastErr;
+    const [threeMod, controlsMod] = await Promise.all([
+      import('three'),
+      import('three/addons/controls/OrbitControls.js')
+    ]);
+    THREE = threeMod;
+    OrbitControls = controlsMod.OrbitControls;
   }
 
   // same equirectangular convention as lonLatToXY/drawWorldBase — lon -180..180
