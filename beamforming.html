@@ -95,6 +95,35 @@
   #farfieldCanvas, #earthCanvas{width:100%;aspect-ratio:1/1;display:block;border-radius:6px;}
   #beamCanvas{width:100%;height:260px;display:block;}
   #mapCanvas{width:100%;aspect-ratio:2/1;display:block;border-radius:6px;background:#0d1428;}
+
+  .fs-btn{
+    background:var(--bg-2);border:1px solid var(--line);color:var(--text-1);
+    font-family:var(--font-mono);font-size:13px;padding:4px 10px;border-radius:6px;
+    cursor:pointer;line-height:1.4;transition:border-color .2s ease,color .2s ease;
+  }
+  .fs-btn:hover{border-color:var(--signal);color:var(--signal);}
+
+  .plot-panel.map-fullscreen{
+    position:fixed; inset:0; z-index:1000;
+    border-radius:0; display:flex; flex-direction:column;
+    padding:20px clamp(20px,4vw,48px);
+  }
+  .plot-panel.map-fullscreen #mapCanvas{
+    aspect-ratio:auto; flex:1; min-height:0; height:100%;
+  }
+  .plot-panel.map-fullscreen .note{display:none;}
+
+  .map-info-overlay{
+    display:none;
+    position:absolute; top:78px; left:clamp(20px,4vw,48px); z-index:5;
+    background:rgba(17,23,41,0.9); border:1px solid var(--line); border-radius:8px;
+    padding:14px 18px; font-family:var(--font-mono); font-size:11.5px; color:var(--text-1);
+    backdrop-filter:blur(4px); min-width:220px;
+  }
+  .map-info-overlay .row{display:flex;justify-content:space-between;gap:18px;margin-bottom:7px;}
+  .map-info-overlay .row:last-child{margin-bottom:0;}
+  .map-info-overlay .row .v{color:var(--text-0);}
+  .plot-panel.map-fullscreen .map-info-overlay{display:block;}
   .band-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px;font-family:var(--font-mono);font-size:10px;color:var(--text-2);}
   .band-legend .chip{display:flex;align-items:center;gap:6px;}
   .band-legend .swatch{width:11px;height:11px;border-radius:2px;flex-shrink:0;}
@@ -186,11 +215,6 @@
         <label for="mapOpacity">Footprint opacity <span class="val" id="mapOpacityVal">85%</span></label>
         <input type="range" id="mapOpacity" min="10" max="100" step="5" value="85">
       </div>
-      <div class="preset-row">
-        <button class="preset-btn" data-lon="1.4">Toulouse</button>
-        <button class="preset-btn" data-lon="-30">Atlantic</button>
-        <button class="preset-btn" data-lon="140">Asia-Pac.</button>
-      </div>
 
       <div class="stats">
         <div class="stat-row"><span>Aperture size</span><span class="v" id="statAperture">—</span></div>
@@ -230,7 +254,14 @@
       </div>
 
       <div class="plot-panel" style="margin-top:20px;">
-        <div class="plot-head"><h2>Geographic coverage</h2><span class="tag" id="mapTag">sub-satellite 0.0°E</span></div>
+        <div class="plot-head">
+          <h2>Geographic coverage</h2>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="tag" id="mapTag">sub-satellite 0.0°E</span>
+            <button class="fs-btn" id="mapFsBtn" title="Fullscreen" aria-label="Toggle fullscreen">⛶</button>
+          </div>
+        </div>
+        <div class="map-info-overlay" id="mapInfoOverlay"></div>
         <canvas id="mapCanvas"></canvas>
         <div class="band-legend" id="bandLegend"></div>
         <div class="note">Drag the map to slide the satellite's longitude and latitude. Contour roundness follows the array's own symmetry — Circular, Flower and Random give a clean red-centered falloff; Linear fans out with no cross-axis focus, and Square/Hexagonal keep a more grid-shaped footprint.</div>
@@ -281,6 +312,9 @@
   const farfieldCanvas = document.getElementById('farfieldCanvas');
   const earthCanvas = document.getElementById('earthCanvas');
   const mapCanvas = document.getElementById('mapCanvas');
+  const mapFsBtn = document.getElementById('mapFsBtn');
+  const mapInfoOverlay = document.getElementById('mapInfoOverlay');
+  const mapPanel = mapCanvas.closest('.plot-panel');
 
   // ---------- shape parameter panels ----------
   const shapeDefs = {
@@ -612,6 +646,16 @@
     return [ (lon+180)/360*W, (90-lat)/180*H ];
   }
 
+  // the map's data is always a 360°x180° world, i.e. a fixed 2:1 aspect —
+  // this keeps that ratio true (no stretching) inside whatever box the
+  // panel actually renders at, letterboxing the rest
+  function mapLetterbox(cw, ch){
+    let mapW, mapH;
+    if(cw/ch > 2){ mapH = ch; mapW = ch*2; }
+    else { mapW = cw; mapH = cw/2; }
+    return { mapW, mapH, offsetX:(cw-mapW)/2, offsetY:(ch-mapH)/2 };
+  }
+
   function drawWorldBase(ctx, W, H){
     ctx.fillStyle = '#0d1428';
     ctx.fillRect(0,0,W,H);
@@ -665,14 +709,21 @@
 
   function drawWorldFootprint(pts, w, u0, v0, fr, altitude, satLonDeg, satLatDeg){
     const {ctx, w:cw, h:ch} = fitCanvas(mapCanvas);
-    drawWorldBase(ctx, cw, ch);
+    const {mapW, mapH, offsetX, offsetY} = mapLetterbox(cw, ch);
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+    drawWorldBase(ctx, mapW, mapH);
 
     const k = (RE+altitude)/RE;
     const lamHor = Math.acos(Math.min(1, RE/(RE+altitude)));
     const lon0 = satLonDeg*Math.PI/180;
     const lat0 = satLatDeg*Math.PI/180;
 
-    const BW=320, BH=200;
+    // scale the compute buffer to the map's actual displayed size (capped
+    // for performance) instead of a fixed resolution — this is what keeps
+    // the contours sharp when the panel is blown up to fullscreen
+    const BW = Math.max(320, Math.min(680, Math.round(mapW*1.15)));
+    const BH = Math.round(BW/2);
     const alphaVal = Math.round(parseFloat(mapOpacity.value)/100*255);
     const buf = new Uint8ClampedArray(BW*BH*4);
     for(let j=0;j<BH;j++){
@@ -705,7 +756,7 @@
     off.getContext('2d').putImageData(new ImageData(buf,BW,BH),0,0);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(off,0,0,cw,ch);
+    ctx.drawImage(off,0,0,mapW,mapH);
 
     // horizon boundary, traced from real spherical geometry (general destination
     // formula, valid for any sub-satellite latitude)
@@ -721,7 +772,7 @@
       let lon2deg = ((lon2*180/Math.PI + 540) % 360) - 180;
       const lat2deg = lat2*180/Math.PI;
       if(prevLonDeg!==null && Math.abs(lon2deg-prevLonDeg)>180) started=false;
-      const [x,y] = lonLatToXY(lon2deg, lat2deg, cw, ch);
+      const [x,y] = lonLatToXY(lon2deg, lat2deg, mapW, mapH);
       if(!started){ ctx.moveTo(x,y); started=true; } else { ctx.lineTo(x,y); }
       prevLonDeg=lon2deg;
     }
@@ -730,13 +781,15 @@
     ctx.stroke();
 
     // sub-satellite marker
-    const [mx,my] = lonLatToXY(satLonDeg, satLatDeg, cw, ch);
+    const [mx,my] = lonLatToXY(satLonDeg, satLatDeg, mapW, mapH);
     ctx.strokeStyle = '#4FE8D4';
     ctx.lineWidth = 1.3;
     ctx.beginPath();
     ctx.moveTo(mx-6,my); ctx.lineTo(mx+6,my);
     ctx.moveTo(mx,my-6); ctx.lineTo(mx,my+6);
     ctx.stroke();
+
+    ctx.restore();
 
     document.getElementById('mapTag').textContent =
       'sub-satellite ' + Math.abs(satLonDeg).toFixed(1) + '°' + (satLonDeg>=0?'E':'W') +
@@ -948,6 +1001,15 @@
     drawEarth(pts, w, u0, v0, fr, altitude);
     drawWorldFootprint(pts, w, u0, v0, fr, altitude, parseFloat(satLon.value), parseFloat(satLat.value));
     computeStats(pts, w, u0, v0, fr, theta0, altitude);
+
+    mapInfoOverlay.innerHTML = `
+      <div class="row"><span>Array</span><span class="v">${shapeSel.options[shapeSel.selectedIndex].text}</span></div>
+      <div class="row"><span>Altitude</span><span class="v">${altVal.textContent}</span></div>
+      <div class="row"><span>Sub-satellite</span><span class="v">${satLonVal.textContent}, ${satLatVal.textContent}</span></div>
+      <div class="row"><span>Peak sidelobe</span><span class="v">${statSll.textContent}</span></div>
+      <div class="row"><span>−3dB beamwidth</span><span class="v">${statBw.textContent}</span></div>
+      <div class="row"><span>Footprint extent</span><span class="v">${statFootprint.textContent}</span></div>
+    `;
   }
 
   // ---------- wiring ----------
@@ -967,14 +1029,16 @@
   let mapDragging = false;
   function lonFromPointer(evt){
     const rect = mapCanvas.getBoundingClientRect();
-    const x = evt.clientX - rect.left;
-    const lon = (x/rect.width)*360 - 180;
+    const {mapW, offsetX} = mapLetterbox(rect.width, rect.height);
+    const x = evt.clientX - rect.left - offsetX;
+    const lon = (x/mapW)*360 - 180;
     return Math.max(-180, Math.min(180, lon));
   }
   function latFromPointer(evt){
     const rect = mapCanvas.getBoundingClientRect();
-    const y = evt.clientY - rect.top;
-    const lat = 90 - (y/rect.height)*180;
+    const {mapH, offsetY} = mapLetterbox(rect.width, rect.height);
+    const y = evt.clientY - rect.top - offsetY;
+    const lat = 90 - (y/mapH)*180;
     return Math.max(-70, Math.min(70, lat));
   }
   mapCanvas.style.cursor = 'move';
@@ -995,6 +1059,23 @@
   mapCanvas.addEventListener('pointerup', ()=>{ mapDragging = false; });
   mapCanvas.addEventListener('pointercancel', ()=>{ mapDragging = false; });
   window.addEventListener('resize', scheduleUpdate);
+
+  mapFsBtn.addEventListener('click', ()=>{
+    const isFs = mapPanel.classList.toggle('map-fullscreen');
+    document.body.style.overflow = isFs ? 'hidden' : '';
+    mapFsBtn.textContent = isFs ? '✕' : '⛶';
+    mapFsBtn.title = isFs ? 'Exit fullscreen' : 'Fullscreen';
+    requestAnimationFrame(scheduleUpdate);
+  });
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape' && mapPanel.classList.contains('map-fullscreen')){
+      mapPanel.classList.remove('map-fullscreen');
+      document.body.style.overflow = '';
+      mapFsBtn.textContent = '⛶';
+      mapFsBtn.title = 'Fullscreen';
+      scheduleUpdate();
+    }
+  });
 
   buildShapeParams();
   update();
